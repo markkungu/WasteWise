@@ -1,0 +1,24 @@
+{
+  "name": "wastewise-client",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "expo": "~51.0.0",
+    "expo-router": "~3.5.0",
+    "expo-camera": "~15.0.0",
+    "expo-location": "~17.0.0",
+    "expo-image-picker": "~15.0.0",
+    "react": "18.2.0",
+    "react-native": "0.74.1",
+    "@react-navigation/native": "^6.1.0",
+    "axios": "^1.6.0",
+    "@react-native-async-storage/async-storage": "^1.23.0",
+    "react-native-maps": "^1.14.0"
+  }
+}
