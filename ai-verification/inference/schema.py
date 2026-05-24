@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, Optional
 
 VERIFICATION_RESULT_TYPE = Literal[
     "APPROVED",
@@ -12,7 +12,7 @@ VERIFICATION_RESULT_TYPE = Literal[
 class VerificationRequest(BaseModel):
     submission_id: str
     image_url: str
-    center_id: int
+    center_id: Optional[int] = None
     latitude: float
     longitude: float
     timestamp: str

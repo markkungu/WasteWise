@@ -1,0 +1,36 @@
+{
+  "users": [
+    {
+      "id": "42632eda-e246-47da-9e37-f830b925bacb",
+      "name": "Mark Kungu",
+      "email": "mark@wastewise.com",
+      "password_hash": "$2a$12$i6dNHt41cqfyqM6h7l0bM.fSsfStvHkg4Xb6sf6fLSDepwLyThW0m",
+      "role": "user",
+      "wallet_address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "is_assisted_collector": false,
+      "collector_code": null,
+      "center_id": null,
+      "created_at": "2026-05-24T14:40:04.917Z"
+    },
+    {
+      "id": "ae6b09aa-be84-40b1-a916-64f38fbb49fc",
+      "name": "Admin User",
+      "email": "admin@wastewise.com",
+      "password_hash": "$2a$12$K0o6gEYjQ6NqQZXAn4vTKublLR0g/X3HXQ2CWQscyNC1ADd1qstHe",
+      "role": "admin",
+      "wallet_address": null,
+      "is_assisted_collector": false,
+      "collector_code": null,
+      "center_id": null,
+      "created_at": "2026-05-24T14:47:36.575Z"
+    }
+  ],
+  "submissions": [],
+  "verification": [],
+  "rewards": [],
+  "routes": [],
+  "_seq": {
+    "routes": 0,
+    "companies": 0
+  }
+}
