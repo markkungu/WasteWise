@@ -112,3 +112,6 @@ __snapshots__/
 .cache/
 tmp/
 temp/
+*.db
+*.sqlite
+wastewise-data.json
