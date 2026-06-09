@@ -4,7 +4,7 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 COPY package*.json ./
-RUN npm install --legacy-peer-deps
+RUN NODE_ENV=development npm install --legacy-peer-deps
 
 COPY . .
 
@@ -12,7 +12,7 @@ COPY . .
 RUN mkdir -p /root/.cache/hardhat-nodejs/compilers-v2/linux-amd64
 COPY compilers/ /root/.cache/hardhat-nodejs/compilers-v2/linux-amd64/
 
-RUN npx hardhat compile
+RUN ./node_modules/.bin/hardhat compile
 
 EXPOSE 8545
-CMD ["npx", "hardhat", "node", "--hostname", "0.0.0.0", "--port", "8545"]
+CMD ["./node_modules/.bin/hardhat", "node", "--hostname", "0.0.0.0", "--port", "8545"]

@@ -16,6 +16,9 @@ async function findUserByEmail(email) {
     const { rows } = await db.query(
       'SELECT u.*, r.name AS role FROM users u JOIN roles r ON r.id = u.role_id WHERE u.email = $1',
       [email.toLowerCase()]
+      
+
+      
     );
     return rows[0] || null;
   }

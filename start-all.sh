@@ -11,6 +11,7 @@ echo "=== WasteWise — Starting all services ==="
 pkill -f "uvicorn app:app" 2>/dev/null || true
 pkill -f "node src/index.js" 2>/dev/null || true
 pkill -f "hardhat node" 2>/dev/null || true
+pkill -f "vite" 2>/dev/null || true
 sleep 1
 
 # 1. AI Verification Service (port 8001)
@@ -36,6 +37,12 @@ echo "[4] Starting Hardhat local node on :8545 ..."
 cd "$ROOT/blockchain"
 NODE_OPTIONS=--no-warnings npx hardhat node --port 8545 > /tmp/wastewise-hardhat.log 2>&1 &
 HARDHAT_PID=$!
+
+# 5. Web client (port 5173)
+echo "[5] Starting Web Client on :5173 ..."
+cd "$ROOT/web-client"
+npm run dev -- --host > /tmp/wastewise-web.log 2>&1 &
+WEB_PID=$!
 
 # ── Wait for each service with retry loop ─────────────────────────────────────
 
@@ -97,9 +104,12 @@ else
   echo "  Hardhat Node:   NOT READY (check /tmp/wastewise-hardhat.log)"
 fi
 
+if wait_http "Web Client" http://localhost:5173 60; then
+  echo "  Web Client:     ok — http://localhost:5173"
+else
+  echo "  Web Client:     NOT READY (check /tmp/wastewise-web.log)"
+fi
+
 echo ""
-echo "=== Mobile Client (start manually) ==="
-echo "  cd client && npx expo start"
-echo ""
-echo "Log files: /tmp/wastewise-{ai,opt,api,hardhat}.log"
-echo "PIDs: AI=$AI_PID  OPT=$OPT_PID  API=$API_PID  HARDHAT=$HARDHAT_PID"
+echo "Log files: /tmp/wastewise-{ai,opt,api,hardhat,web}.log"
+echo "PIDs: AI=$AI_PID  OPT=$OPT_PID  API=$API_PID  HARDHAT=$HARDHAT_PID  WEB=$WEB_PID"

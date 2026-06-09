@@ -50,4 +50,30 @@ router.post('/optimize', authenticate, requireRole('admin'), async (req, res) =>
   }
 });
 
+// GET /api/routes/comparison
+router.get('/comparison', authenticate, async (req, res) => {
+  try {
+    const r = await axios.get(`${process.env.OPTIMIZATION_SERVICE_URL}/comparison`, { timeout: 30000 });
+    res.json(r.data);
+  } catch (err) {
+    if (err.response?.status === 404) return res.status(404).json({ error: 'No comparison data yet. Run an optimization first.' });
+    res.status(502).json({ error: 'Optimization service unavailable.', detail: err.message });
+  }
+});
+
+// POST /api/routes/compare/custom
+router.post('/compare/custom', authenticate, async (req, res) => {
+  try {
+    const r = await axios.post(
+      `${process.env.OPTIMIZATION_SERVICE_URL}/compare/custom`,
+      req.body,
+      { timeout: 300000 },
+    );
+    res.json(r.data);
+  } catch (err) {
+    if (err.response?.status === 422) return res.status(422).json(err.response.data);
+    res.status(502).json({ error: 'Optimization service unavailable.', detail: err.message });
+  }
+});
+
 module.exports = router;

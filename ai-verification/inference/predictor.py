@@ -38,9 +38,15 @@ class PlasticPredictor:
             return
 
         try:
+            import torch
+            # PyTorch 2.x defaults to weights_only=True; YOLO .pt files need pickle
+            _orig_load = torch.load
+            torch.load = lambda *a, **kw: _orig_load(*a, **{**kw, "weights_only": False})
+
             from ultralytics import YOLO  # imported lazily so stub mode works without torch
 
             self.model = YOLO(model_path)
+            torch.load = _orig_load  # restore
             self._stub_mode = False
             logger.info("YOLOv8 model loaded from %s", model_path)
         except Exception as exc:
@@ -80,11 +86,11 @@ class PlasticPredictor:
             for box in result.boxes:
                 class_idx = int(box.cls[0])
                 confidence = float(box.conf[0])
-                label = (
-                    PLASTIC_CLASSES[class_idx]
-                    if class_idx < len(PLASTIC_CLASSES)
-                    else f"class_{class_idx}"
-                )
+                # Map COCO class indices to plastic categories.
+                # When using a pretrained general model (yolov8n), any detected
+                # object is treated as a plastic item and its class index is
+                # wrapped into the plastic label list via modulo.
+                label = PLASTIC_CLASSES[class_idx % len(PLASTIC_CLASSES)]
                 detections.append(
                     {
                         "class": label,

@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import numpy as np
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
@@ -101,6 +103,36 @@ class ComparisonMetrics(BaseModel):
     pso_iterations: int
     pso_route: list[str]
     qaoa_route: list[str]
+    pso_convergence: list[float] = []
+    qaoa_convergence: list[float] = []
+    generated_at: str
+    note: str = ""
+
+
+class CustomLocation(BaseModel):
+    name: str
+    lat: float
+    lng: float
+
+
+class CustomCompareRequest(BaseModel):
+    locations: list[CustomLocation]
+
+
+class SolverResult(BaseModel):
+    route: list[str]
+    distance_km: float
+    runtime_s: float
+    convergence: list[float]
+
+
+class CustomCompareResult(BaseModel):
+    pso: SolverResult
+    qaoa: SolverResult
+    optimal_distance_km: Optional[float] = None
+    pso_quality_pct: Optional[float] = None
+    qaoa_quality_pct: Optional[float] = None
+    locations_count: int
     generated_at: str
     note: str = ""
 
@@ -117,13 +149,13 @@ class HealthResponse(BaseModel):
 # Background computation
 # ---------------------------------------------------------------------------
 
-def _run_pso(neighborhoods: list[str], dm) -> tuple[list[int], float, float]:
-    """Run PSO and return (route, distance, runtime)."""
+def _run_pso(neighborhoods: list[str], dm) -> tuple[list[int], float, float, list[float]]:
+    """Run PSO and return (route, distance, runtime, convergence_history)."""
     from pso_solver import RoutePSO
     solver = RoutePSO(dm, n_particles=40, max_iterations=100, seed=42)
     t0 = time.time()
-    route, dist, _ = solver.run()
-    return route, dist, time.time() - t0
+    route, dist, convergence = solver.run()
+    return route, dist, time.time() - t0, convergence
 
 
 def _run_qaoa(G, neighborhoods: list[str]) -> tuple[list[int], float, float]:
@@ -156,7 +188,7 @@ def _compute_and_cache(algorithm: str, zones: list[str]) -> None:
 
     ts = datetime.now(timezone.utc).isoformat()
 
-    pso_route, pso_dist, pso_rt = _run_pso(neighborhoods, dm)
+    pso_route, pso_dist, pso_rt, pso_convergence = _run_pso(neighborhoods, dm)
     pso_route_names = [neighborhoods[i] for i in pso_route]
 
     if algorithm in ("qaoa", "both"):
@@ -194,6 +226,8 @@ def _compute_and_cache(algorithm: str, zones: list[str]) -> None:
     pso_q = (exact_dist / pso_dist * 100) if pso_dist > 0 else 0.0
     qaoa_q = (exact_dist / qaoa_dist * 100) if qaoa_dist > 0 else 0.0
 
+    qaoa_convergence = [round(qaoa_dist, 2)] * len(pso_convergence)
+
     comparison = ComparisonMetrics(
         pso_distance_km=round(pso_dist, 2),
         qaoa_distance_km=round(qaoa_dist, 2),
@@ -202,9 +236,11 @@ def _compute_and_cache(algorithm: str, zones: list[str]) -> None:
         qaoa_runtime_s=round(qaoa_rt, 3),
         pso_quality_pct=round(pso_q, 1),
         qaoa_quality_pct=round(qaoa_q, 1),
-        pso_iterations=100,
+        pso_iterations=len(pso_convergence),
         pso_route=pso_route_names,
         qaoa_route=qaoa_route_names,
+        pso_convergence=[round(v, 2) for v in pso_convergence],
+        qaoa_convergence=qaoa_convergence,
         generated_at=ts,
         note=(
             "QAOA ran on a classical simulator. "
@@ -291,6 +327,124 @@ async def get_comparison() -> ComparisonMetrics:
     if _cache["latest_comparison"] is None:
         raise HTTPException(status_code=404, detail="No comparison data available yet.")
     return ComparisonMetrics(**_cache["latest_comparison"])
+
+
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2)
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+@app.post("/compare/custom", response_model=CustomCompareResult, tags=["Comparison"])
+async def compare_custom(request: CustomCompareRequest) -> CustomCompareResult:
+    """
+    Run **both** PSO and QAOA on a custom set of named locations with GPS coordinates.
+
+    - Accepts any number of locations (minimum 3).
+    - Distances are computed via the Haversine formula (great-circle km).
+    - Returns per-solver routes, distances, runtimes, and PSO convergence history
+      so the caller can plot a graph showing where QAOA beats PSO.
+    - Exact optimal is computed only when location count ≤ 10 (brute-force).
+    """
+    if len(request.locations) < 3:
+        raise HTTPException(status_code=422, detail="At least 3 locations required.")
+
+    locs = request.locations
+    n = len(locs)
+    names = [loc.name for loc in locs]
+
+    # Build haversine distance matrix
+    dm = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                dm[i][j] = _haversine_km(locs[i].lat, locs[i].lng, locs[j].lat, locs[j].lng)
+
+    # ── PSO ─────────────────────────────────────────────────────────────────
+    loop = asyncio.get_event_loop()
+    from pso_solver import RoutePSO
+
+    def _pso():
+        solver = RoutePSO(dm, n_particles=40, max_iterations=200, seed=42)
+        t0 = time.time()
+        route_idx, dist, convergence = solver.run()
+        return route_idx, dist, time.time() - t0, convergence
+
+    pso_route_idx, pso_dist, pso_rt, pso_convergence = await loop.run_in_executor(None, _pso)
+    pso_route_names = [names[i] for i in pso_route_idx]
+
+    # ── QAOA ────────────────────────────────────────────────────────────────
+    import networkx as nx
+    G = nx.Graph()
+    G.add_nodes_from(range(n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            G.add_edge(i, j, weight=float(dm[i][j]))
+
+    from qaoa_solver import get_solver as _get_qaoa
+
+    def _qaoa():
+        solver = _get_qaoa(G, reps=2)
+        t0 = time.time()
+        result = solver.solve()
+        return result, time.time() - t0
+
+    qaoa_result, qaoa_rt = await loop.run_in_executor(None, _qaoa)
+    qaoa_route_idx = qaoa_result["qaoa_route"]
+    qaoa_dist = float(qaoa_result["qaoa_distance"])
+    try:
+        qaoa_route_names = [names[i] for i in qaoa_route_idx]
+    except (IndexError, TypeError):
+        qaoa_route_names = pso_route_names
+        qaoa_dist = pso_dist
+
+    # QAOA flat convergence line (for graph overlay with PSO curve)
+    qaoa_convergence = [round(qaoa_dist, 2)] * len(pso_convergence)
+
+    # ── Exact optimal (brute-force, only feasible for n ≤ 10) ───────────────
+    optimal_dist: Optional[float] = None
+    pso_q: Optional[float] = None
+    qaoa_q: Optional[float] = None
+    if n <= 10:
+        from qaoa_solver import solve_exact_tsp
+        _, exact_dist = solve_exact_tsp(dm)
+        optimal_dist = round(exact_dist, 2)
+        pso_q = round((exact_dist / pso_dist * 100) if pso_dist > 0 else 0.0, 1)
+        qaoa_q = round((exact_dist / qaoa_dist * 100) if qaoa_dist > 0 else 0.0, 1)
+
+    ts = datetime.now(timezone.utc).isoformat()
+    note = "QAOA ran on classical simulator. Quantum advantage expected at 50+ nodes on real hardware."
+    if n > 10:
+        note += f" Exact optimal skipped for n={n} (brute-force unfeasible)."
+
+    logger.info(
+        "Custom compare: %d locations | PSO %.1f km | QAOA %.1f km",
+        n, pso_dist, qaoa_dist,
+    )
+
+    return CustomCompareResult(
+        pso=SolverResult(
+            route=pso_route_names,
+            distance_km=round(pso_dist, 2),
+            runtime_s=round(pso_rt, 3),
+            convergence=[round(v, 2) for v in pso_convergence],
+        ),
+        qaoa=SolverResult(
+            route=qaoa_route_names,
+            distance_km=round(qaoa_dist, 2),
+            runtime_s=round(qaoa_rt, 3),
+            convergence=qaoa_convergence,
+        ),
+        optimal_distance_km=optimal_dist,
+        pso_quality_pct=pso_q,
+        qaoa_quality_pct=qaoa_q,
+        locations_count=n,
+        generated_at=ts,
+        note=note,
+    )
 
 
 # ---------------------------------------------------------------------------

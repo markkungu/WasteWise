@@ -1,0 +1,207 @@
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { MapContainer, TileLayer, Polyline, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { getRoutes, optimizeRoutes, clearToken } from '../services/api';
+import { getUserRole } from '../services/auth';
+
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
+
+const NAIROBI_COORDS = {
+  Westlands:  [-1.2676, 36.8116],
+  Kibera:     [-1.3133, 36.7897],
+  Mathare:    [-1.2574, 36.8561],
+  Eastleigh:  [-1.2747, 36.8476],
+  Embakasi:   [-1.3204, 36.8944],
+  Ruaraka:    [-1.2412, 36.8677],
+  Kasarani:   [-1.2215, 36.8951],
+  Dagoretti:  [-1.2877, 36.7434],
+  Langata:    [-1.3367, 36.7597],
+  Karen:      [-1.3186, 36.7118],
+};
+
+const ROUTE_COLORS = ['#16a34a','#2563eb','#dc2626','#d97706','#7c3aed','#0891b2','#be185d','#65a30d'];
+
+function stopToLatLng(stop) {
+  if (Array.isArray(stop) && stop.length === 2) return stop;
+  if (typeof stop === 'string' && NAIROBI_COORDS[stop]) return NAIROBI_COORDS[stop];
+  if (stop && typeof stop === 'object') {
+    if (stop.lat != null) return [stop.lat, stop.lng];
+    if (stop.latitude != null) return [stop.latitude, stop.longitude];
+  }
+  return null;
+}
+
+export default function MapView() {
+  const navigate = useNavigate();
+  const userRole = getUserRole();
+  const canGenerate = userRole === 'admin' || userRole === 'company';
+
+  const [routes, setRoutes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [algorithm, setAlgorithm] = useState('pso');
+  const [error, setError] = useState('');
+  const [genResult, setGenResult] = useState('');
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const data = await getRoutes();
+      setRoutes(data.routes || []);
+    } catch (err) {
+      if (err.response?.status === 401) { clearToken(); navigate('/login'); return; }
+      if (err.response?.status === 404) { setRoutes([]); return; }
+      setError('Failed to load routes.');
+    } finally {
+      setLoading(false);
+    }
+  }, [navigate]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setError('');
+    setGenResult('');
+    try {
+      const data = await optimizeRoutes(algorithm);
+      setGenResult(`Generated ${data.routes_generated} route(s) using ${algorithm.toUpperCase()}.`);
+      await load();
+    } catch (err) {
+      if (err.response?.status === 401) { clearToken(); navigate('/login'); return; }
+      if (err.response?.status === 403) { setError('Only admin or company accounts can generate routes.'); return; }
+      setError(err.response?.data?.error || 'Route generation failed.');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  const center = [-1.2921, 36.8219];
+
+  return (
+    <div className="page-wrap-wide" style={{ paddingTop: 28 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <h2 style={{ fontWeight: 800 }}>Collection Routes</h2>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {canGenerate && (
+            <>
+              <select
+                value={algorithm}
+                onChange={e => setAlgorithm(e.target.value)}
+                style={{ padding: '7px 12px', borderRadius: 8, border: '1.5px solid var(--border)', fontSize: 14, background: '#fff', outline: 'none' }}
+              >
+                <option value="pso">PSO (Classical, fast)</option>
+                <option value="qaoa">QAOA (Quantum-inspired)</option>
+                <option value="both">Both (Compare)</option>
+              </select>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleGenerate}
+                disabled={generating}
+              >
+                {generating ? '⏳ Generating…' : '⚡ Generate Routes'}
+              </button>
+            </>
+          )}
+          <button className="btn btn-secondary btn-sm" onClick={() => { setLoading(true); load(); }} disabled={loading}>
+            ↺ Refresh
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="error-box">{error}</div>}
+      {genResult && <div className="success-box">{genResult}</div>}
+
+      {!canGenerate && (
+        <div style={{ background: 'var(--yellow-bg)', color: 'var(--yellow-text)', borderRadius: 8, padding: '8px 14px', fontSize: 13, marginBottom: 12 }}>
+          Route generation requires an admin or company account. Showing the latest cached routes.
+        </div>
+      )}
+
+      {loading ? (
+        <div className="spinner" />
+      ) : (
+        <>
+          {routes.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: 32 }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🗺️</div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>No routes yet</div>
+              <div style={{ color: 'var(--text-3)', fontSize: 14 }}>
+                {canGenerate
+                  ? 'Use the "Generate Routes" button above to compute optimized collection routes.'
+                  : 'An admin or company account needs to generate routes first.'}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ borderRadius: 12, overflow: 'hidden', boxShadow: 'var(--shadow)', marginBottom: 16 }}>
+                <MapContainer center={center} zoom={11} style={{ height: 500, width: '100%' }}>
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  {routes.map((route, i) => {
+                    const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+                    const coords = (route.route_order || []).map(stopToLatLng).filter(Boolean);
+                    if (coords.length < 2) return null;
+                    return (
+                      <div key={route.id || i}>
+                        <Polyline positions={[...coords, coords[0]]} pathOptions={{ color, weight: 4, opacity: 0.8 }} />
+                        {coords.map((pos, j) => {
+                          const stop = route.route_order[j];
+                          const label = typeof stop === 'string' ? stop : `Stop ${j + 1}`;
+                          const desc = j === 0 ? 'Start / End' : route.zone || '';
+                          return (
+                            <Marker key={j} position={pos} icon={L.divIcon({
+                              className: '',
+                              html: `<div style="background:${color};color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3)">${j + 1}</div>`,
+                              iconSize: [24, 24],
+                              iconAnchor: [12, 12],
+                            })}>
+                              <Popup><strong>{label}</strong><br />{desc}</Popup>
+                            </Marker>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </MapContainer>
+              </div>
+
+              <div className="card">
+                <div className="section-title">Route Details</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {routes.map((route, i) => (
+                    <div key={route.id || i} style={{ borderBottom: i < routes.length - 1 ? '1px solid var(--border)' : 'none', paddingBottom: i < routes.length - 1 ? 10 : 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                        <div style={{ width: 14, height: 14, borderRadius: '50%', background: ROUTE_COLORS[i % ROUTE_COLORS.length], flexShrink: 0 }} />
+                        <span style={{ fontWeight: 700, flex: 1 }}>{route.zone || `Route ${i + 1}`}</span>
+                        <span className="badge badge-green">{route.algorithm_used}</span>
+                        <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{route.total_distance_km} km</span>
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--text-3)', paddingLeft: 24 }}>
+                        {(route.route_order || []).join(' → ')}
+                      </div>
+                      {route.qaoa_vs_pso_improvement && route.qaoa_vs_pso_improvement !== '+0.0%' && (
+                        <div style={{ fontSize: 12, color: 'var(--green-dark)', paddingLeft: 24, marginTop: 2 }}>
+                          QAOA vs PSO: {route.qaoa_vs_pso_improvement}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
