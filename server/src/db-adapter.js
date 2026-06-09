@@ -74,13 +74,24 @@ async function createSubmission(sub) {
   return sub;
 }
 
-async function updateSubmissionStatus(id, verification_status) {
+async function updateSubmissionStatus(id, verification_status, weight_validation_status) {
   if (isPg()) {
-    await db.query('UPDATE plastic_submissions SET verification_status=$1 WHERE id=$2', [verification_status, id]);
+    if (weight_validation_status !== undefined) {
+      await db.query(
+        'UPDATE plastic_submissions SET verification_status=$1, weight_validation_status=$2 WHERE id=$3',
+        [verification_status, weight_validation_status, id]
+      );
+    } else {
+      await db.query('UPDATE plastic_submissions SET verification_status=$1 WHERE id=$2', [verification_status, id]);
+    }
     return;
   }
   const s = mem().submissions.find(s => s.id === id);
-  if (s) { s.verification_status = verification_status; save(); }
+  if (s) {
+    s.verification_status = verification_status;
+    if (weight_validation_status !== undefined) s.weight_validation_status = weight_validation_status;
+    save();
+  }
 }
 
 async function findSubmissionsByUser(user_id, page, limit) {
@@ -215,12 +226,16 @@ async function findRewardsByUser(user_id, page, limit) {
 
 async function findRewardBySubmission(submission_id, status) {
   if (isPg()) {
-    const { rows } = await db.query(
-      'SELECT * FROM rewards WHERE submission_id=$1 AND status=$2', [submission_id, status]
-    );
+    const params = status !== undefined
+      ? ['SELECT * FROM rewards WHERE submission_id=$1 AND status=$2 ORDER BY created_at DESC LIMIT 1', [submission_id, status]]
+      : ['SELECT * FROM rewards WHERE submission_id=$1 ORDER BY created_at DESC LIMIT 1', [submission_id]];
+    const { rows } = await db.query(...params);
     return rows[0] || null;
   }
-  return mem().rewards.find(r => r.submission_id === submission_id && r.status === status) || null;
+  const matches = mem().rewards.filter(r =>
+    r.submission_id === submission_id && (status === undefined || r.status === status)
+  );
+  return matches[matches.length - 1] || null;
 }
 
 async function updateReward(submission_id, { status, tx_hash }) {
@@ -232,6 +247,17 @@ async function updateReward(submission_id, { status, tx_hash }) {
   }
   const r = mem().rewards.find(r => r.submission_id === submission_id);
   if (r) { r.status = status; r.tx_hash = tx_hash; save(); }
+}
+
+// ---- Recycling Companies ----------------------------------------------------
+
+async function findCompanyById(id) {
+  if (isPg()) {
+    const { rows } = await db.query('SELECT * FROM recycling_companies WHERE id=$1', [id]);
+    return rows[0] || null;
+  }
+  // In-memory mode has no companies table; treat any numeric id as valid for dev
+  return id ? { id } : null;
 }
 
 // ---- Routes -----------------------------------------------------------------
@@ -423,6 +449,7 @@ module.exports = {
   createSubmission, updateSubmissionStatus, findSubmissionsByUser, findSubmissionById, findSubmissionsByIds,
   createVerification,
   createReward, findRewardsByUser, findRewardBySubmission, updateReward,
+  findCompanyById,
   findLatestRoutes, createRoute,
   getAnalyticsDashboard, getHeatmapData, getTrendsData,
 };

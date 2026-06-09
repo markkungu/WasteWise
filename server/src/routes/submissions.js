@@ -19,13 +19,30 @@ router.post('/', authenticate, upload.single('image'), async (req, res) => {
     if (!image_url || !latitude || !longitude)
       return res.status(400).json({ error: 'image_url (or image file), latitude, and longitude are required.' });
 
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180)
+      return res.status(400).json({ error: 'latitude and longitude must be valid coordinates.' });
+
+    if (reported_weight_kg !== undefined) {
+      const w = parseFloat(reported_weight_kg);
+      if (isNaN(w) || w <= 0 || w > 10000)
+        return res.status(400).json({ error: 'reported_weight_kg must be a positive number no greater than 10000.' });
+    }
+
+    if (center_id) {
+      const company = await db.findCompanyById(parseInt(center_id));
+      if (!company)
+        return res.status(400).json({ error: `Recycling center ${center_id} does not exist.` });
+    }
+
     const submissionId = uuidv4();
     const submission = await db.createSubmission({
       id:                       submissionId,
       user_id:                  req.user.user_id,
       image_url,
-      latitude:                 parseFloat(latitude),
-      longitude:                parseFloat(longitude),
+      latitude:                 lat,
+      longitude:                lng,
       reported_weight_kg:       reported_weight_kg ? parseFloat(reported_weight_kg) : null,
       waste_type:               waste_type || null,
       verification_status:      'PENDING',
@@ -41,8 +58,8 @@ router.post('/', authenticate, upload.single('image'), async (req, res) => {
         submission_id: submissionId,
         image_url,
         center_id:  center_id ? parseInt(center_id) : null,
-        latitude:   parseFloat(latitude),
-        longitude:  parseFloat(longitude),
+        latitude:   lat,
+        longitude:  lng,
         timestamp:  new Date().toISOString(),
       }, { timeout: 30000 });
       verif = r.data;
@@ -52,7 +69,11 @@ router.post('/', authenticate, upload.single('image'), async (req, res) => {
     }
 
     const isApproved = verif.verification_result === 'APPROVED';
-    await db.updateSubmissionStatus(submissionId, isApproved ? 'APPROVED' : 'REJECTED');
+    await db.updateSubmissionStatus(
+      submissionId,
+      isApproved ? 'APPROVED' : 'REJECTED',
+      isApproved ? 'VALIDATED' : 'REJECTED'
+    );
     await db.createVerification({
       id:                   uuidv4(),
       submission_id:        submissionId,
