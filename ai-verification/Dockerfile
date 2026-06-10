@@ -6,9 +6,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1 wget libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps (lightweight — excludes torch/ultralytics for stub mode)
+# Install Python deps (CPU-only torch to avoid the 900 MB CUDA wheel)
 COPY requirements-docker.txt ./
-RUN pip install --no-cache-dir -r requirements-docker.txt
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements-docker.txt
 
 COPY . .
 RUN mkdir -p models dataset

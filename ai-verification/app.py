@@ -56,7 +56,10 @@ async def lifespan(_app: FastAPI):
     logger.info("Loading PlasticPredictor from %s ...", model_path)
     predictor = PlasticPredictor(model_path=model_path)
     _predictor = predictor
-    _spoof_detector = SpoofDetector()
+    moire_threshold = float(os.getenv("MOIRE_THRESHOLD", "0.15"))
+    blur_threshold  = float(os.getenv("BLUR_THRESHOLD",  "100.0"))
+    _spoof_detector = SpoofDetector(blur_threshold=blur_threshold, moire_threshold=moire_threshold)
+    logger.info("SpoofDetector ready. blur_threshold=%.1f moire_threshold=%.2f", blur_threshold, moire_threshold)
     logger.info(
         "Service ready. Model loaded=%s, stub_mode=%s",
         predictor.model_loaded,

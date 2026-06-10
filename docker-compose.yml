@@ -37,6 +37,7 @@ services:
       JWT_SECRET: wastewise-dev-secret-change-in-production-minimum-64-chars
       JWT_EXPIRES_IN: 7d
       ML_SERVICE_URL: http://ai-verification:8001
+      SELF_URL: http://backend:5000
       OPTIMIZATION_SERVICE_URL: http://optimization:8002
       CORS_ORIGIN: "*"
       BLOCKCHAIN_RPC: ""
@@ -64,6 +65,8 @@ services:
       MODEL_PATH: /app/models/wastewise_plastic_v1/best.pt
       CONFIDENCE_THRESHOLD: "0.30"
       DEVICE: cpu
+      MOIRE_THRESHOLD: "0.35"
+      BLUR_THRESHOLD: "50.0"
     volumes:
       - ./ai-verification/models:/app/models
     healthcheck:

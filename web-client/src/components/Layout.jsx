@@ -17,7 +17,6 @@ export default function Layout() {
           <NavLink to="/" end className={({ isActive }) => 'topbar-link' + (isActive ? ' active' : '')}>Home</NavLink>
           <NavLink to="/submit" className={({ isActive }) => 'topbar-link' + (isActive ? ' active' : '')}>Submit</NavLink>
           <NavLink to="/rewards" className={({ isActive }) => 'topbar-link' + (isActive ? ' active' : '')}>Rewards</NavLink>
-          <NavLink to="/map" className={({ isActive }) => 'topbar-link' + (isActive ? ' active' : '')}>Map</NavLink>
           <NavLink to="/driver" className={({ isActive }) => 'topbar-link' + (isActive ? ' active' : '')}>Driver Route</NavLink>
           <NavLink to="/comparison" className={({ isActive }) => 'topbar-link' + (isActive ? ' active' : '')}>Comparison</NavLink>
           <button className="btn btn-secondary btn-sm" style={{ marginLeft: 8 }} onClick={handleLogout}>Sign Out</button>

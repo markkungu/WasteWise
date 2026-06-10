@@ -7,4 +7,6 @@ numpy==1.26.4
 Pillow==10.3.0
 requests==2.32.2
 python-dotenv==1.0.1
+torch==2.3.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+torchvision==0.18.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
 ultralytics==8.2.0

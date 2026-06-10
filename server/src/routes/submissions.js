@@ -15,9 +15,12 @@ const upload = multer({ dest: path.join(__dirname, '..', '..', 'uploads'), limit
 router.post('/', authenticate, upload.single('image'), async (req, res) => {
   try {
     const { latitude, longitude, reported_weight_kg, waste_type, center_id } = req.body;
-    const image_url = req.body.image_url || (req.file ? `/uploads/${req.file.filename}` : null);
-    if (!image_url || !latitude || !longitude)
+    const raw_image_url = req.body.image_url || (req.file ? `/uploads/${req.file.filename}` : null);
+    if (!raw_image_url || !latitude || !longitude)
       return res.status(400).json({ error: 'image_url (or image file), latitude, and longitude are required.' });
+    // Resolve relative upload paths to an absolute URL so the AI container can fetch the image
+    const SELF_URL = process.env.SELF_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const image_url = raw_image_url.startsWith('/') ? `${SELF_URL}${raw_image_url}` : raw_image_url;
 
     const lat = parseFloat(latitude);
     const lng = parseFloat(longitude);

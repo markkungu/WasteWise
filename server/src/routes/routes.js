@@ -1,7 +1,7 @@
 const express = require('express');
 const axios   = require('axios');
 const db = require('../db-adapter');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -18,7 +18,7 @@ router.get('/latest', authenticate, async (req, res) => {
 });
 
 // POST /api/routes/optimize
-router.post('/optimize', authenticate, requireRole('admin'), async (req, res) => {
+router.post('/optimize', authenticate, async (req, res) => {
   try {
     const { algorithm = 'pso', zones = [] } = req.body;
 

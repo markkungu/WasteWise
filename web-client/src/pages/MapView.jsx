@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Polyline, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -89,7 +89,7 @@ export default function MapView() {
                 const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
                 const coords = (route.route_order || []).map(stopToLatLng).filter(Boolean);
                 return (
-                  <div key={route.id || i}>
+                  <React.Fragment key={route.id || i}>
                     {coords.length > 1 && <Polyline positions={coords} pathOptions={{ color, weight: 4, opacity: 0.8 }} />}
                     {coords.map((pos, j) => {
                       const stop = route.route_order[j];
@@ -106,7 +106,7 @@ export default function MapView() {
                         </Marker>
                       );
                     })}
-                  </div>
+                  </React.Fragment>
                 );
               })}
             </MapContainer>
