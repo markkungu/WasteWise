@@ -22,22 +22,35 @@ export default function DriverRoute() {
     { name: '', lat: '', lng: '' },
     { name: '', lat: '', lng: '' },
   ]);
+  const [startLocation, setStartLocation] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState('');
   const [result, setResult] = useState(null);
 
   const addLocation    = () => setLocations(p => [...p, { name: '', lat: '', lng: '' }]);
   const removeLocation = (i) => setLocations(p => p.filter((_, idx) => idx !== i));
-  const updateLocation = (i, field, value) =>
-    setLocations(p => p.map((l, idx) => idx === i ? { ...l, [field]: value } : l));
+  const updateLocation = (i, field, value) => {
+    setLocations(p => {
+      const updated = p.map((l, idx) => idx === i ? { ...l, [field]: value } : l);
+      // Keep start location in sync: if none set, default to first named location
+      if (field === 'name') {
+        const firstNamed = updated.find(l => l.name.trim())?.name.trim() || '';
+        setStartLocation(prev => prev || firstNamed);
+      }
+      return updated;
+    });
+  };
 
   const addPreset = (preset) => {
     if (locations.some(l => l.name === preset.name)) return;
     setLocations(prev => {
       const blank = prev.findIndex(l => !l.name && !l.lat && !l.lng);
-      if (blank !== -1)
-        return prev.map((l, i) => i === blank ? { name: preset.name, lat: String(preset.lat), lng: String(preset.lng) } : l);
-      return [...prev, { name: preset.name, lat: String(preset.lat), lng: String(preset.lng) }];
+      const updated = blank !== -1
+        ? prev.map((l, i) => i === blank ? { name: preset.name, lat: String(preset.lat), lng: String(preset.lng) } : l)
+        : [...prev, { name: preset.name, lat: String(preset.lat), lng: String(preset.lng) }];
+      // Default start to first named location if not yet chosen
+      setStartLocation(s => s || preset.name);
+      return updated;
     });
   };
 
@@ -50,7 +63,7 @@ export default function DriverRoute() {
     if (payload.some(l => isNaN(l.lat) || isNaN(l.lng))) { setError('All coordinates must be valid numbers.'); return; }
     setLoading(true);
     try {
-      const data = await compareCustom(payload);
+      const data = await compareCustom(payload, startLocation || null);
       setResult(data);
     } catch (err) {
       if (err.response?.status === 401) { clearToken(); navigate('/login'); return; }
@@ -113,6 +126,17 @@ export default function DriverRoute() {
               <button type="button" className="btn btn-secondary btn-sm" onClick={addLocation} style={{ marginBottom: 16 }}>
                 + Add location
               </button>
+
+              <div className="input-group" style={{ marginBottom: 16 }}>
+                <label>Starting point</label>
+                <select value={startLocation} onChange={e => setStartLocation(e.target.value)}>
+                  <option value="">— Auto (solver decides) —</option>
+                  {locations.filter(l => l.name.trim()).map((l, i) => (
+                    <option key={i} value={l.name.trim()}>{l.name.trim()}</option>
+                  ))}
+                </select>
+              </div>
+
               {error && <div className="error-box" style={{ marginBottom: 12 }}>{error}</div>}
               <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
                 {loading ? 'Optimizing route…' : 'Find best route'}

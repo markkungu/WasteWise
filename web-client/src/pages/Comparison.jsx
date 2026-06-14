@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { compareCustom, clearToken } from '../services/api';
 
@@ -80,6 +80,91 @@ function ConvergenceChart({ psoData, qaoaFinal, width = 600, height = 300 }) {
   );
 }
 
+// ── Scalability Chart ────────────────────────────────────────────────────────
+function ScalabilityChart({ data, width = 580, height = 300 }) {
+  if (!data || data.length === 0) return null;
+  const PAD = { top: 20, right: 20, bottom: 48, left: 64 };
+  const W = width - PAD.left - PAD.right;
+  const H = height - PAD.top - PAD.bottom;
+
+  const allTimes = data.flatMap(d => [d.psoTime, d.qaoaTime]);
+  const maxY = Math.max(...allTimes) * 1.15 || 1;
+  const minX = data[0].nodes;
+  const maxX = data[data.length - 1].nodes;
+  const rangeX = Math.max(maxX - minX, 1);
+
+  const toX = (n) => ((n - minX) / rangeX) * W;
+  const toY = (v) => H - (v / maxY) * H;
+
+  const psoPoints  = data.map(d => `${toX(d.nodes)},${toY(d.psoTime)}`).join(' ');
+  const qaoaPoints = data.map(d => `${toX(d.nodes)},${toY(d.qaoaTime)}`).join(' ');
+
+  const tickCount = 5;
+  const yTicks = Array.from({ length: tickCount }, (_, i) => {
+    const v = (maxY * i) / (tickCount - 1);
+    return { v, y: toY(v) };
+  });
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <svg width={width} height={height} style={{ display: 'block', maxWidth: '100%' }}>
+        <g transform={`translate(${PAD.left},${PAD.top})`}>
+          {/* Grid */}
+          {yTicks.map(({ y }, i) => <line key={i} x1={0} y1={y} x2={W} y2={y} stroke="#e5e7eb" strokeWidth={1} />)}
+
+          {/* Lines */}
+          <polyline points={psoPoints}  fill="none" stroke="#2563eb" strokeWidth={2.5} strokeLinejoin="round" />
+          <polyline points={qaoaPoints} fill="none" stroke="#7c3aed" strokeWidth={2.5} strokeLinejoin="round" strokeDasharray="6 3" />
+
+          {/* Dots + tooltips */}
+          {data.map(d => (
+            <g key={d.nodes}>
+              <circle cx={toX(d.nodes)} cy={toY(d.psoTime)}  r={4} fill="#2563eb" />
+              <circle cx={toX(d.nodes)} cy={toY(d.qaoaTime)} r={4} fill="#7c3aed" />
+              <text x={toX(d.nodes)} y={toY(d.psoTime) - 7}  textAnchor="middle" fontSize={9} fill="#2563eb">{d.psoTime.toFixed(2)}s</text>
+              <text x={toX(d.nodes)} y={toY(d.qaoaTime) + 14} textAnchor="middle" fontSize={9} fill="#7c3aed">{d.qaoaTime.toFixed(2)}s</text>
+            </g>
+          ))}
+
+          {/* Y ticks */}
+          {yTicks.map(({ v, y }, i) => (
+            <g key={i}>
+              <line x1={-4} y1={y} x2={0} y2={y} stroke="#9ca3af" />
+              <text x={-8} y={y + 4} textAnchor="end" fontSize={11} fill="#6b7280">{v.toFixed(2)}s</text>
+            </g>
+          ))}
+
+          {/* X ticks */}
+          {data.map(d => (
+            <g key={d.nodes} transform={`translate(${toX(d.nodes)},${H})`}>
+              <line x1={0} y1={0} x2={0} y2={4} stroke="#9ca3af" />
+              <text x={0} y={16} textAnchor="middle" fontSize={11} fill="#6b7280">{d.nodes}</text>
+            </g>
+          ))}
+
+          {/* Axis labels */}
+          <text x={W / 2} y={H + 40} textAnchor="middle" fontSize={12} fill="#374151">Number of nodes (locations)</text>
+          <text x={-(H / 2)} y={-50} textAnchor="middle" fontSize={12} fill="#374151" transform="rotate(-90)">Runtime (seconds)</text>
+
+          {/* Legend */}
+          <g transform={`translate(${W - 150}, 4)`}>
+            <line x1={0} y1={8} x2={20} y2={8} stroke="#2563eb" strokeWidth={2.5} />
+            <circle cx={10} cy={8} r={3} fill="#2563eb" />
+            <text x={26} y={12} fontSize={12} fill="#374151">PSO</text>
+            <line x1={0} y1={26} x2={20} y2={26} stroke="#7c3aed" strokeWidth={2.5} strokeDasharray="6 3" />
+            <circle cx={10} cy={26} r={3} fill="#7c3aed" />
+            <text x={26} y={30} fontSize={12} fill="#374151">QAOA</text>
+          </g>
+
+          {/* Axes */}
+          <line x1={0} y1={0} x2={0} y2={H} stroke="#9ca3af" />
+          <line x1={0} y1={H} x2={W} y2={H} stroke="#9ca3af" />
+        </g>
+      </svg>
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function Comparison() {
   const navigate = useNavigate();
@@ -88,22 +173,62 @@ export default function Comparison() {
     { name: '', lat: '', lng: '' },
     { name: '', lat: '', lng: '' },
   ]);
+  const [startLocation, setStartLocation] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState('');
   const [data, setData]     = useState(null);
 
+  const [scaleData,    setScaleData]    = useState(null);
+  const [scaleLoading, setScaleLoading] = useState(false);
+  const [scaleProgress, setScaleProgress] = useState('');
+  const [scaleError,   setScaleError]   = useState('');
+  const abortRef = useRef(false);
+
+  const runBenchmark = useCallback(async () => {
+    abortRef.current = false;
+    setScaleLoading(true);
+    setScaleError('');
+    setScaleData(null);
+    const results = [];
+    for (let n = 3; n <= NAIROBI_PRESETS.length; n++) {
+      if (abortRef.current) break;
+      setScaleProgress(`Running ${n} nodes… (${n - 2}/${NAIROBI_PRESETS.length - 2})`);
+      const subset = NAIROBI_PRESETS.slice(0, n).map(p => ({ name: p.name, lat: p.lat, lng: p.lng }));
+      try {
+        const res = await compareCustom(subset, null);
+        results.push({ nodes: n, psoTime: res.pso.runtime_s, qaoaTime: res.qaoa.runtime_s });
+      } catch (err) {
+        setScaleError('Benchmark stopped: ' + (err.response?.data?.detail || err.message));
+        break;
+      }
+    }
+    setScaleData(results.length > 0 ? results : null);
+    setScaleLoading(false);
+    setScaleProgress('');
+  }, []);
+
   const addLocation    = () => setLocations(p => [...p, { name: '', lat: '', lng: '' }]);
   const removeLocation = (i) => setLocations(p => p.filter((_, idx) => idx !== i));
-  const updateLocation = (i, field, value) =>
-    setLocations(p => p.map((l, idx) => idx === i ? { ...l, [field]: value } : l));
+  const updateLocation = (i, field, value) => {
+    setLocations(p => {
+      const updated = p.map((l, idx) => idx === i ? { ...l, [field]: value } : l);
+      if (field === 'name') {
+        const firstNamed = updated.find(l => l.name.trim())?.name.trim() || '';
+        setStartLocation(prev => prev || firstNamed);
+      }
+      return updated;
+    });
+  };
 
   const addPreset = (preset) => {
     if (locations.some(l => l.name === preset.name)) return;
     setLocations(prev => {
       const blank = prev.findIndex(l => !l.name && !l.lat && !l.lng);
-      if (blank !== -1)
-        return prev.map((l, i) => i === blank ? { name: preset.name, lat: String(preset.lat), lng: String(preset.lng) } : l);
-      return [...prev, { name: preset.name, lat: String(preset.lat), lng: String(preset.lng) }];
+      const updated = blank !== -1
+        ? prev.map((l, i) => i === blank ? { name: preset.name, lat: String(preset.lat), lng: String(preset.lng) } : l)
+        : [...prev, { name: preset.name, lat: String(preset.lat), lng: String(preset.lng) }];
+      setStartLocation(s => s || preset.name);
+      return updated;
     });
   };
 
@@ -116,7 +241,7 @@ export default function Comparison() {
     if (payload.some(l => isNaN(l.lat) || isNaN(l.lng))) { setError('All coordinates must be valid numbers.'); return; }
     setLoading(true);
     try {
-      const result = await compareCustom(payload);
+      const result = await compareCustom(payload, startLocation || null);
       setData(result);
     } catch (err) {
       if (err.response?.status === 401) { clearToken(); navigate('/login'); return; }
@@ -176,6 +301,17 @@ export default function Comparison() {
               <button type="button" className="btn btn-secondary btn-sm" onClick={addLocation} style={{ marginBottom: 16 }}>
                 + Add location
               </button>
+
+              <div className="input-group" style={{ marginBottom: 16 }}>
+                <label>Starting point</label>
+                <select value={startLocation} onChange={e => setStartLocation(e.target.value)}>
+                  <option value="">— Auto (solver decides) —</option>
+                  {locations.filter(l => l.name.trim()).map((l, i) => (
+                    <option key={i} value={l.name.trim()}>{l.name.trim()}</option>
+                  ))}
+                </select>
+              </div>
+
               {error && <div className="error-box" style={{ marginBottom: 12 }}>{error}</div>}
               <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
                 {loading ? 'Running both solvers…' : '▶ Run comparison'}
@@ -241,6 +377,33 @@ export default function Comparison() {
               Generated at: {new Date(data.generated_at).toLocaleString()}
             </p>
           </div>
+        )}
+      </div>
+
+      {/* ── Scalability Benchmark ── */}
+      <div className="card" style={{ marginTop: 32 }}>
+        <div className="section-title" style={{ marginBottom: 4 }}>Scalability Analysis — Runtime vs Number of Nodes</div>
+        <p style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16 }}>
+          Runs both solvers on 3, 4, 5 … 10 Nairobi locations and plots how long each takes.
+          This reveals how each algorithm scales as the problem grows.
+        </p>
+        <button
+          className="btn btn-secondary"
+          onClick={runBenchmark}
+          disabled={scaleLoading}
+          style={{ marginBottom: 16 }}>
+          {scaleLoading ? scaleProgress || 'Running…' : '▶ Run scalability benchmark (3 – 10 nodes)'}
+        </button>
+        {scaleError && <div className="error-box" style={{ marginBottom: 12 }}>{scaleError}</div>}
+        {scaleData && (
+          <>
+            <ScalabilityChart data={scaleData} width={580} height={300} />
+            <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 10, fontStyle: 'italic' }}>
+              PSO (blue solid) vs QAOA (purple dashed). As node count grows, QAOA simulation
+              typically takes longer because it must evaluate all possible qubit states.
+              PSO stays faster because it only tracks a fixed number of particles.
+            </p>
+          </>
         )}
       </div>
     </div>

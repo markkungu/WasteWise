@@ -38,6 +38,7 @@ services:
       JWT_EXPIRES_IN: 7d
       ML_SERVICE_URL: http://ai-verification:8001
       SELF_URL: http://backend:5000
+      SKIP_AI_VERIFICATION: "true"
       OPTIMIZATION_SERVICE_URL: http://optimization:8002
       CORS_ORIGIN: "*"
       BLOCKCHAIN_RPC: ""

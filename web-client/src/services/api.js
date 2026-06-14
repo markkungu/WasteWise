@@ -89,8 +89,8 @@ export const getComparison = async () => {
   return data;
 };
 
-export const compareCustom = async (locations) => {
-  const { data } = await api.post('/routes/compare/custom', { locations }, { timeout: 300000 });
+export const compareCustom = async (locations, startLocation = null) => {
+  const { data } = await api.post('/routes/compare/custom', { locations, start_location: startLocation }, { timeout: 300000 });
   return data;
 };
 

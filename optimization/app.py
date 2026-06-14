@@ -117,6 +117,7 @@ class CustomLocation(BaseModel):
 
 class CustomCompareRequest(BaseModel):
     locations: list[CustomLocation]
+    start_location: Optional[str] = None
 
 
 class SolverResult(BaseModel):
@@ -403,6 +404,16 @@ async def compare_custom(request: CustomCompareRequest) -> CustomCompareResult:
 
     # QAOA flat convergence line (for graph overlay with PSO curve)
     qaoa_convergence = [round(qaoa_dist, 2)] * len(pso_convergence)
+
+    # Rotate both routes so the chosen start location is always first
+    def _rotate_to_start(route: list[str], start: Optional[str]) -> list[str]:
+        if not start or start not in route:
+            return route
+        idx = route.index(start)
+        return route[idx:] + route[:idx]
+
+    pso_route_names  = _rotate_to_start(pso_route_names,  request.start_location)
+    qaoa_route_names = _rotate_to_start(qaoa_route_names, request.start_location)
 
     # ── Exact optimal (brute-force, only feasible for n ≤ 10) ───────────────
     optimal_dist: Optional[float] = None

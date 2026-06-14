@@ -54,21 +54,34 @@ router.post('/', authenticate, upload.single('image'), async (req, res) => {
       center_id:                center_id ? parseInt(center_id) : null,
     });
 
-    // Call AI service
+    // Call AI service (set SKIP_AI_VERIFICATION=true to bypass and force APPROVED for testing)
     let verif;
-    try {
-      const r = await axios.post(`${process.env.ML_SERVICE_URL}/predict`, {
-        submission_id: submissionId,
-        image_url,
-        center_id:  center_id ? parseInt(center_id) : null,
-        latitude:   lat,
-        longitude:  lng,
-        timestamp:  new Date().toISOString(),
-      }, { timeout: 30000 });
-      verif = r.data;
-    } catch (err) {
-      console.warn('[submissions] AI service unavailable:', err.message);
-      return res.status(202).json({ message: 'Submission received. Verification pending.', submission_id: submissionId, status: 'PENDING' });
+    if (process.env.SKIP_AI_VERIFICATION === 'true') {
+      console.info('[submissions] SKIP_AI_VERIFICATION=true — auto-approving submission', submissionId);
+      verif = {
+        verification_result:   'APPROVED',
+        primary_category:      waste_type || 'PET',
+        detected_items_count:  1,
+        confidence_score:      1.0,
+        authenticity_verified: true,
+        fraud_flags:           ['NONE'],
+        model_version:         'bypass',
+      };
+    } else {
+      try {
+        const r = await axios.post(`${process.env.ML_SERVICE_URL}/predict`, {
+          submission_id: submissionId,
+          image_url,
+          center_id:  center_id ? parseInt(center_id) : null,
+          latitude:   lat,
+          longitude:  lng,
+          timestamp:  new Date().toISOString(),
+        }, { timeout: 30000 });
+        verif = r.data;
+      } catch (err) {
+        console.warn('[submissions] AI service unavailable:', err.message);
+        return res.status(202).json({ message: 'Submission received. Verification pending.', submission_id: submissionId, status: 'PENDING' });
+      }
     }
 
     const isApproved = verif.verification_result === 'APPROVED';
